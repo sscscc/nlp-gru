@@ -144,7 +144,7 @@ val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # 初始化模型、损失函数和优化器
 model = GRUTranslator(input_size, HIDDEN_SIZE, output_size, NUM_LAYERS)
-loss_function = nn.CrossEntropyLoss(ignore_index=src_word2id["<PAD>"])
+loss_function = nn.CrossEntropyLoss()
 optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 
 # 将模型转移到GPU
@@ -182,3 +182,5 @@ for epoch in epoch_bar:
         epoch_bar.set_description(
             f"Train Loss: {total_loss/len(train_loader) :.2f}, Val Loss: {val_loss/len(val_loader) :.2f}"
         )
+
+test_model()
