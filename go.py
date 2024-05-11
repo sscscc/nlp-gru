@@ -116,6 +116,7 @@ def test_model():
         print(f"trg: {trg_sentence}")
         print(f"pred: {pred_sentence}")
 
+torch.manual_seed(0)
 
 # 设置超参数
 HIDDEN_SIZE = 256
@@ -147,7 +148,7 @@ loss_function = nn.CrossEntropyLoss(ignore_index=src_word2id["<PAD>"])
 optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 
 # 将模型转移到GPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = "cuda"
 model.to(device)
 
 # 训练模型
