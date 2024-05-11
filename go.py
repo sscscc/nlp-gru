@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import jieba
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
+from opencc import OpenCC
 
 print("modules imported")
 
@@ -15,6 +16,9 @@ def load_data(path):
     with open(path, "r", encoding="utf-8") as f:
         lines = f.read().strip().split("\n")
     pairs = [line.split("\t")[:2] for line in lines]
+    cc = OpenCC("t2s")
+    for pair in pairs:
+        pair[1] = cc.convert(pair[1])
     return pairs
 
 
@@ -29,6 +33,7 @@ def tokenize_sentence(text, language):
 
 # 创建词汇表
 def create_vocab(pairs):
+    cc = OpenCC("t2s")  # t2s表示繁体转简体
     en_vocab = set()
     cn_vocab = set()
     for pair in pairs:
@@ -116,6 +121,7 @@ def test_model():
         print(f"trg: {trg_sentence}")
         print(f"pred: {pred_sentence}")
         print()
+
 
 torch.manual_seed(0)
 
