@@ -115,6 +115,7 @@ def test_model():
         print(f"src: {src_sentence}")
         print(f"trg: {trg_sentence}")
         print(f"pred: {pred_sentence}")
+        print()
 
 torch.manual_seed(0)
 
