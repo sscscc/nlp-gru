@@ -167,9 +167,6 @@ for epoch in epoch_bar:
         optimizer.step()
         total_loss += loss.item()
         train_bar.set_postfix(loss=loss.item())
-    epoch_bar.set_description(
-        f"Epoch {epoch+1}/{EPOCHS}, Loss: {total_loss/len(train_loader)}"
-    )
 
     # 验证模型
     model.eval()
@@ -182,4 +179,6 @@ for epoch in epoch_bar:
             loss = loss_function(output.view(-1, output_size), trg_batch.view(-1))
             val_loss += loss.item()
             val_bar.set_postfix(loss=loss.item())
-        epoch_bar.set_description(f"Validation Loss: {val_loss/len(val_loader)}")
+        epoch_bar.set_description(
+            f"Train Loss: {total_loss/len(train_loader) :.2f}, Val Loss: {val_loss/len(val_loader) :.2f}"
+        )
