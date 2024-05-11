@@ -159,7 +159,7 @@ device = "cuda"
 model.to(device)
 
 # 训练模型
-epoch_bar = tqdm(range(EPOCHS))
+epoch_bar = tqdm(range(EPOCHS), leave=True)
 for epoch in epoch_bar:
     model.train()
     total_loss = 0
