@@ -4,7 +4,6 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import Adam
 import torch.nn.functional as F
-import numpy as np
 import jieba
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
@@ -36,13 +35,11 @@ def create_vocab(pairs):
         eng, cn = pair
         en_vocab.update(tokenize_sentence(eng, "en"))
         cn_vocab.update(tokenize_sentence(cn, "cn"))
-    en_vocab = sorted(en_vocab)
-    cn_vocab = sorted(cn_vocab)
-    en_word_to_index = {word: index for index, word in enumerate(en_vocab, 1)}
-    en_word_to_index["<PAD>"] = 0
-    cn_word_to_index = {word: index for index, word in enumerate(cn_vocab, 1)}
-    cn_word_to_index["<PAD>"] = 0
-    return en_word_to_index, cn_word_to_index
+    en_vocab = ["<PAD>"] + list(sorted(en_vocab))
+    cn_vocab = ["<PAD>"] + list(sorted(cn_vocab))
+    en_word_to_index = {word: index for index, word in enumerate(en_vocab)}
+    cn_word_to_index = {word: index for index, word in enumerate(cn_vocab)}
+    return en_vocab, cn_vocab, en_word_to_index, cn_word_to_index
 
 
 # 将句子转换为向量
@@ -52,6 +49,16 @@ def sentence_to_vector(sentence, vocab, max_length, language):
     ]
     vector += [vocab["<PAD>"]] * (max_length - len(vector))
     return vector
+
+
+def vector_to_sentence(vector, vocab, language):
+    if language == "cn":
+        sentence = "".join([vocab[id] for id in vector]).split("<PAD>")[0]
+    elif language == "en":
+        sentence = " ".join([vocab[id] for id in vector]).split("<PAD>")[0]
+    else:
+        sentence = None
+    return sentence
 
 
 # 定义数据集类
@@ -92,6 +99,24 @@ class GRUTranslator(nn.Module):
         return predictions, hidden
 
 
+def test_model():
+    model.eval()
+    # 任取100个样本进行测试
+    test_loader = DataLoader(val_dataset, batch_size=100, shuffle=True)
+    src_batch, trg_batch = next(iter(test_loader))
+    src_batch, trg_batch = src_batch.to(device), trg_batch.to(device)
+    with torch.no_grad():
+        output, _ = model(src_batch)
+        output = output.argmax(dim=-1)
+    for i in range(100):
+        src_sentence = vector_to_sentence(src_batch[i], src_id2word, "en")
+        trg_sentence = vector_to_sentence(trg_batch[i], trg_id2word, "cn")
+        pred_sentence = vector_to_sentence(output[i], trg_id2word, "cn")
+        print(f"src: {src_sentence}")
+        print(f"trg: {trg_sentence}")
+        print(f"pred: {pred_sentence}")
+
+
 # 设置超参数
 HIDDEN_SIZE = 256
 NUM_LAYERS = 2
@@ -102,12 +127,12 @@ MAX_LENGTH = 24
 
 # 加载数据并进行预处理
 pairs = load_data("cmn.txt")
-src_vocab, trg_vocab = create_vocab(pairs)
-input_size = len(src_vocab)
-output_size = len(trg_vocab)
+src_id2word, trg_id2word, src_word2id, trg_word2id = create_vocab(pairs)
+input_size = len(src_id2word)
+output_size = len(trg_id2word)
 
 # 创建数据集和数据加载器
-full_dataset = TranslationDataset(pairs, src_vocab, trg_vocab, MAX_LENGTH)
+full_dataset = TranslationDataset(pairs, src_word2id, trg_word2id, MAX_LENGTH)
 train_data_len = int(0.8 * len(full_dataset))
 val_data_len = len(full_dataset) - train_data_len
 train_dataset, val_dataset = torch.utils.data.random_split(
@@ -118,7 +143,7 @@ val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # 初始化模型、损失函数和优化器
 model = GRUTranslator(input_size, HIDDEN_SIZE, output_size, NUM_LAYERS)
-loss_function = nn.CrossEntropyLoss(ignore_index=src_vocab["<PAD>"])
+loss_function = nn.CrossEntropyLoss(ignore_index=src_word2id["<PAD>"])
 optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 
 # 将模型转移到GPU
