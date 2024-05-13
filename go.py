@@ -159,6 +159,9 @@ device = "cuda"
 model.to(device)
 
 # 训练模型
+worse_count = 0
+best_loss = float("inf")
+last_loss = float("inf")
 epoch_bar = tqdm(range(EPOCHS), leave=True)
 for epoch in epoch_bar:
     model.train()
@@ -186,8 +189,23 @@ for epoch in epoch_bar:
             loss = loss_function(output.view(-1, output_size), trg_batch.view(-1))
             val_loss += loss.item()
             val_bar.set_postfix(loss=loss.item())
+        val_loss /= len(val_loader)
         epoch_bar.set_description(
-            f"Train Loss: {total_loss/len(train_loader) :.2f}, Val Loss: {val_loss/len(val_loader) :.2f}"
+            f"Train Loss: {total_loss/len(train_loader) :.2f}, Val Loss: {val_loss :.2f}"
         )
+    if val_loss < best_loss:
+        best_loss = val_loss
+        best_model_state = model.state_dict().copy()
 
+    if val_loss > last_loss:
+        worse_count += 1
+
+    last_loss = val_loss
+
+    if worse_count >= 2:
+        break
+
+# 测试模型
+model.load_state_dict(best_model_state)
 test_model()
+print("best val loss: ", best_loss)
