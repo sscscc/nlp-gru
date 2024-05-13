@@ -4,12 +4,23 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import Adam
 import torch.nn.functional as F
+import nni
 import jieba
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 from opencc import OpenCC
 
 print("modules imported")
+
+params = {
+    "hidden_size": 896,
+    "num_layers": 1,
+    "batch_size": 128,
+    "learning_rate": 0.0003489641529568134,
+    "epochs": 200,
+    "max_length": 24,
+}
+params.update(nni.get_next_parameter())
 
 
 def load_data(path):
@@ -126,12 +137,12 @@ def test_model():
 torch.manual_seed(0)
 
 # 设置超参数
-HIDDEN_SIZE = 256
-NUM_LAYERS = 2
-BATCH_SIZE = 64
-LEARNING_RATE = 0.001
-EPOCHS = 10
-MAX_LENGTH = 24
+HIDDEN_SIZE = int(params["hidden_size"])
+NUM_LAYERS = int(params["num_layers"])
+BATCH_SIZE = params["batch_size"]
+LEARNING_RATE = params["learning_rate"]
+EPOCHS = params["epochs"]
+MAX_LENGTH = params["max_length"]
 
 # 加载数据并进行预处理
 pairs = load_data("cmn.txt")
@@ -209,3 +220,4 @@ for epoch in epoch_bar:
 model.load_state_dict(best_model_state)
 test_model()
 print("best val loss: ", best_loss)
+nni.report_final_result(best_loss)
