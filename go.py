@@ -30,13 +30,15 @@ def load_data(path):
     cc = OpenCC("t2s")
     for pair in pairs:
         pair[1] = cc.convert(pair[1])
+        if SRC_LANG == "cn":
+            pair[0], pair[1] = pair[1], pair[0]
     return pairs
 
 
-def tokenize_sentence(text, language):
-    if language == "en":
+def tokenize_sentence(text, lang):
+    if lang == "en":
         return word_tokenize(text.lower())
-    elif language == "cn":
+    elif lang == "cn":
         return jieba.lcut(text)
     else:
         return None
@@ -45,32 +47,30 @@ def tokenize_sentence(text, language):
 # 创建词汇表
 def create_vocab(pairs):
     cc = OpenCC("t2s")  # t2s表示繁体转简体
-    en_vocab = set()
-    cn_vocab = set()
+    src_vocab = set()
+    trg_vocab = set()
     for pair in pairs:
-        eng, cn = pair
-        en_vocab.update(tokenize_sentence(eng, "en"))
-        cn_vocab.update(tokenize_sentence(cn, "cn"))
-    en_vocab = ["<PAD>"] + list(sorted(en_vocab))
-    cn_vocab = ["<PAD>"] + list(sorted(cn_vocab))
-    en_word_to_index = {word: index for index, word in enumerate(en_vocab)}
-    cn_word_to_index = {word: index for index, word in enumerate(cn_vocab)}
-    return en_vocab, cn_vocab, en_word_to_index, cn_word_to_index
+        src, trg = pair
+        src_vocab.update(tokenize_sentence(src, SRC_LANG))
+        trg_vocab.update(tokenize_sentence(trg, TRG_LANG))
+    src_vocab = ["<PAD>"] + list(sorted(src_vocab))
+    trg_vocab = ["<PAD>"] + list(sorted(trg_vocab))
+    src_word_to_index = {word: index for index, word in enumerate(src_vocab)}
+    trg_word_to_index = {word: index for index, word in enumerate(trg_vocab)}
+    return src_vocab, trg_vocab, src_word_to_index, trg_word_to_index
 
 
 # 将句子转换为向量
-def sentence_to_vector(sentence, vocab, max_length, language):
-    vector = [vocab[word] for word in tokenize_sentence(sentence, language)][
-        :max_length
-    ]
+def sentence_to_vector(sentence, vocab, max_length, lang):
+    vector = [vocab[word] for word in tokenize_sentence(sentence, lang)][:max_length]
     vector += [vocab["<PAD>"]] * (max_length - len(vector))
     return vector
 
 
-def vector_to_sentence(vector, vocab, language):
-    if language == "cn":
+def vector_to_sentence(vector, vocab, lang):
+    if lang == "cn":
         sentence = "".join([vocab[id] for id in vector]).split("<PAD>")[0]
-    elif language == "en":
+    elif lang == "en":
         sentence = " ".join([vocab[id] for id in vector]).split("<PAD>")[0]
     else:
         sentence = None
@@ -86,8 +86,8 @@ class TranslationDataset(Dataset):
         self.max_length = max_length
         self.tokenize_pairs = [
             (
-                sentence_to_vector(src_sentence, src_vocab, max_length, "en"),
-                sentence_to_vector(trg_sentence, trg_vocab, max_length, "cn"),
+                sentence_to_vector(src_sentence, src_vocab, max_length, SRC_LANG),
+                sentence_to_vector(trg_sentence, trg_vocab, max_length, TRG_LANG),
             )
             for src_sentence, trg_sentence in pairs
         ]
@@ -125,9 +125,9 @@ def test_model():
         output, _ = model(src_batch)
         output = output.argmax(dim=-1)
     for i in range(100):
-        src_sentence = vector_to_sentence(src_batch[i], src_id2word, "en")
-        trg_sentence = vector_to_sentence(trg_batch[i], trg_id2word, "cn")
-        pred_sentence = vector_to_sentence(output[i], trg_id2word, "cn")
+        src_sentence = vector_to_sentence(src_batch[i], src_id2word, SRC_LANG)
+        trg_sentence = vector_to_sentence(trg_batch[i], trg_id2word, TRG_LANG)
+        pred_sentence = vector_to_sentence(output[i], trg_id2word, TRG_LANG)
         print(f"src: {src_sentence}")
         print(f"trg: {trg_sentence}")
         print(f"pred: {pred_sentence}")
@@ -143,6 +143,9 @@ BATCH_SIZE = params["batch_size"]
 LEARNING_RATE = params["learning_rate"]
 EPOCHS = params["epochs"]
 MAX_LENGTH = params["max_length"]
+
+SRC_LANG = "en"
+TRG_LANG = "cn"
 
 # 加载数据并进行预处理
 pairs = load_data("cmn.txt")
