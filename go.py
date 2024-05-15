@@ -9,21 +9,24 @@ import jieba
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 from opencc import OpenCC
+from datasets import load_dataset
+from torch.cuda.amp import autocast
+import os
 
 print("modules imported")
 
 params = {
-    "hidden_size": 896,
+    "hidden_size": 512,
     "num_layers": 1,
     "batch_size": 128,
-    "learning_rate": 0.0003489641529568134,
-    "epochs": 200,
-    "max_length": 24,
+    "learning_rate": 0.001,
+    "epochs": 10,
+    "max_length": 128,
 }
 params.update(nni.get_next_parameter())
 
 
-def load_data(path):
+def load_data_manythings(path):
     with open(path, "r", encoding="utf-8") as f:
         lines = f.read().strip().split("\n")
     pairs = [line.split("\t")[:2] for line in lines]
@@ -32,6 +35,33 @@ def load_data(path):
         pair[1] = cc.convert(pair[1])
         if SRC_LANG == "cn":
             pair[0], pair[1] = pair[1], pair[0]
+    return pairs
+
+
+def load_data_wmt():
+    dataset = load_dataset("wmt/wmt19", "zh-en")
+    if os.path.exists("pairs.pt"):
+        pairs = torch.load("pairs.pt")
+    else:
+        pairs = []
+        bar = tqdm(dataset["train"])
+        for example in bar:
+            en, zh = example["translation"]["en"], example["translation"]["zh"]
+            if (
+                len(tokenize_sentence(en, "en")) < 128
+                and len(tokenize_sentence(zh, "cn")) < 128
+            ):
+                pairs.append(
+                    (
+                        example["translation"]["en"],
+                        example["translation"]["zh"],
+                    )
+                )
+                pair_num = len(pairs)
+                bar.set_description(f"pairs: {pair_num}")
+                if pair_num >= 1000000:
+                    break
+        torch.save(pairs, "pairs.pt")
     return pairs
 
 
@@ -46,15 +76,38 @@ def tokenize_sentence(text, lang):
 
 # 创建词汇表
 def create_vocab(pairs):
-    cc = OpenCC("t2s")  # t2s表示繁体转简体
-    src_vocab = set()
-    trg_vocab = set()
-    for pair in pairs:
-        src, trg = pair
-        src_vocab.update(tokenize_sentence(src, SRC_LANG))
-        trg_vocab.update(tokenize_sentence(trg, TRG_LANG))
-    src_vocab = ["<PAD>"] + list(sorted(src_vocab))
-    trg_vocab = ["<PAD>"] + list(sorted(trg_vocab))
+    src_vocab = {}
+    trg_vocab = {}
+    if os.path.exists("vocab_raw.pt"):
+        src_vocab, trg_vocab = torch.load("vocab_raw.pt")
+    else:
+        for pair in tqdm(pairs):
+            src, trg = pair
+            for token in tokenize_sentence(src, SRC_LANG):
+                if token not in src_vocab:
+                    src_vocab[token] = 1
+                else:
+                    src_vocab[token] += 1
+            for token in tokenize_sentence(trg, TRG_LANG):
+                if token not in trg_vocab:
+                    trg_vocab[token] = 1
+                else:
+                    trg_vocab[token] += 1
+        torch.save((src_vocab, trg_vocab), "vocab_raw.pt")
+
+    # write vocab count to csv
+    with open("src_vocab.csv", "w", encoding="utf-8") as f:
+        for _, count in src_vocab.items():
+            f.write(f"{count}\n")
+    with open("trg_vocab.csv", "w", encoding="utf-8") as f:
+        for _, count in trg_vocab.items():
+            f.write(f"{count}\n")
+
+    # remove words that appear <= 2 times
+    src_vocab = {word: count for word, count in src_vocab.items() if count > 2}
+    trg_vocab = {word: count for word, count in trg_vocab.items() if count > 2}
+    src_vocab = ["<PAD>", "<UNK>"] + list(sorted(src_vocab.keys()))
+    trg_vocab = ["<PAD>", "<UNK>"] + list(sorted(trg_vocab.keys()))
     src_word_to_index = {word: index for index, word in enumerate(src_vocab)}
     trg_word_to_index = {word: index for index, word in enumerate(trg_vocab)}
     return src_vocab, trg_vocab, src_word_to_index, trg_word_to_index
@@ -62,7 +115,12 @@ def create_vocab(pairs):
 
 # 将句子转换为向量
 def sentence_to_vector(sentence, vocab, max_length, lang):
-    vector = [vocab[word] for word in tokenize_sentence(sentence, lang)][:max_length]
+    vector = []
+    for word in tokenize_sentence(sentence, lang)[:max_length]:
+        if word in vocab:
+            vector.append(vocab[word])
+        else:
+            vector.append(vocab["<UNK>"])
     vector += [vocab["<PAD>"]] * (max_length - len(vector))
     return vector
 
@@ -84,13 +142,17 @@ class TranslationDataset(Dataset):
         self.src_vocab = src_vocab
         self.trg_vocab = trg_vocab
         self.max_length = max_length
-        self.tokenize_pairs = [
-            (
-                sentence_to_vector(src_sentence, src_vocab, max_length, SRC_LANG),
-                sentence_to_vector(trg_sentence, trg_vocab, max_length, TRG_LANG),
-            )
-            for src_sentence, trg_sentence in pairs
-        ]
+        if os.path.exists("tokenize_pairs.pt"):
+            self.tokenize_pairs = torch.load("tokenize_pairs.pt")
+        else:
+            self.tokenize_pairs = [
+                (
+                    sentence_to_vector(src_sentence, src_vocab, max_length, SRC_LANG),
+                    sentence_to_vector(trg_sentence, trg_vocab, max_length, TRG_LANG),
+                )
+                for src_sentence, trg_sentence in tqdm(pairs)
+            ]
+            torch.save(self.tokenize_pairs, "tokenize_pairs.pt")
 
     def __len__(self):
         return len(self.pairs)
@@ -148,12 +210,17 @@ SRC_LANG = "en"
 TRG_LANG = "cn"
 
 # 加载数据并进行预处理
-pairs = load_data("cmn.txt")
+print("loading data")
+pairs = load_data_wmt()
+print("creating vocab")
 src_id2word, trg_id2word, src_word2id, trg_word2id = create_vocab(pairs)
 input_size = len(src_id2word)
 output_size = len(trg_id2word)
+print("input size: ", input_size)
+print("output size: ", output_size)
 
 # 创建数据集和数据加载器
+print("creating dataset and dataloader")
 full_dataset = TranslationDataset(pairs, src_word2id, trg_word2id, MAX_LENGTH)
 train_data_len = int(0.8 * len(full_dataset))
 val_data_len = len(full_dataset) - train_data_len
@@ -173,6 +240,7 @@ device = "cuda"
 model.to(device)
 
 # 训练模型
+print("training model")
 worse_count = 0
 best_loss = float("inf")
 last_loss = float("inf")
@@ -184,6 +252,7 @@ for epoch in epoch_bar:
     for src_batch, trg_batch in train_bar:
         src_batch, trg_batch = src_batch.to(device), trg_batch.to(device)
         optimizer.zero_grad()
+        
         output, _ = model(src_batch)
         loss = loss_function(output.view(-1, output_size), trg_batch.view(-1))
         # loss = loss_function(output, trg_batch)
@@ -210,6 +279,7 @@ for epoch in epoch_bar:
     if val_loss < best_loss:
         best_loss = val_loss
         best_model_state = model.state_dict().copy()
+        # torch.save(best_model_state, "best_model.pt")
 
     if val_loss > last_loss:
         worse_count += 1
