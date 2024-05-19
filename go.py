@@ -40,8 +40,8 @@ def load_data_manythings(path):
 
 def load_data_wmt():
     dataset = load_dataset("wmt/wmt19", "zh-en")
-    if os.path.exists("pairs.pt"):
-        pairs = torch.load("pairs.pt")
+    if os.path.exists(f"pairs_{DATASET}.pt"):
+        pairs = torch.load(f"pairs_{DATASET}.pt")
     else:
         pairs = []
         bar = tqdm(dataset["train"])
@@ -61,7 +61,7 @@ def load_data_wmt():
                 bar.set_description(f"pairs: {pair_num}")
                 if pair_num >= 1000000:
                     break
-        torch.save(pairs, "pairs.pt")
+        torch.save(pairs, f"pairs_{DATASET}.pt")
     return pairs
 
 
@@ -78,8 +78,8 @@ def tokenize_sentence(text, lang):
 def create_vocab(pairs):
     src_vocab = {}
     trg_vocab = {}
-    if os.path.exists("vocab_raw.pt"):
-        src_vocab, trg_vocab = torch.load("vocab_raw.pt")
+    if os.path.exists(f"vocab_raw_{DATASET}.pt"):
+        src_vocab, trg_vocab = torch.load(f"vocab_raw_{DATASET}.pt")
     else:
         for pair in tqdm(pairs):
             src, trg = pair
@@ -93,7 +93,7 @@ def create_vocab(pairs):
                     trg_vocab[token] = 1
                 else:
                     trg_vocab[token] += 1
-        torch.save((src_vocab, trg_vocab), "vocab_raw.pt")
+        torch.save((src_vocab, trg_vocab), f"vocab_raw_{DATASET}.pt")
 
     # write vocab count to csv
     with open("src_vocab.csv", "w", encoding="utf-8") as f:
@@ -142,8 +142,8 @@ class TranslationDataset(Dataset):
         self.src_vocab = src_vocab
         self.trg_vocab = trg_vocab
         self.max_length = max_length
-        if os.path.exists("tokenize_pairs.pt"):
-            self.tokenize_pairs = torch.load("tokenize_pairs.pt")
+        if os.path.exists(f"tokenize_pairs_{DATASET}.pt"):
+            self.tokenize_pairs = torch.load(f"tokenize_pairs_{DATASET}.pt")
         else:
             self.tokenize_pairs = [
                 (
@@ -152,7 +152,7 @@ class TranslationDataset(Dataset):
                 )
                 for src_sentence, trg_sentence in tqdm(pairs)
             ]
-            torch.save(self.tokenize_pairs, "tokenize_pairs.pt")
+            torch.save(self.tokenize_pairs, f"tokenize_pairs_{DATASET}.pt")
 
     def __len__(self):
         return len(self.pairs)
@@ -209,9 +209,14 @@ MAX_LENGTH = params["max_length"]
 SRC_LANG = "en"
 TRG_LANG = "cn"
 
+DATASET = "wmt"
+
 # 加载数据并进行预处理
 print("loading data")
-pairs = load_data_wmt()
+if DATASET == "manythings":
+    pairs = load_data_manythings("data/manythings.txt")
+elif DATASET == "wmt":
+    pairs = load_data_wmt()
 print("creating vocab")
 src_id2word, trg_id2word, src_word2id, trg_word2id = create_vocab(pairs)
 input_size = len(src_id2word)
@@ -252,7 +257,7 @@ for epoch in epoch_bar:
     for src_batch, trg_batch in train_bar:
         src_batch, trg_batch = src_batch.to(device), trg_batch.to(device)
         optimizer.zero_grad()
-        
+
         output, _ = model(src_batch)
         loss = loss_function(output.view(-1, output_size), trg_batch.view(-1))
         # loss = loss_function(output, trg_batch)
