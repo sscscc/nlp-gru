@@ -286,7 +286,7 @@ for epoch in epoch_bar:
             val_bar.set_postfix(loss=loss.item())
         val_loss /= len(val_loader)
         epoch_bar.set_description(
-            f"Train Loss: {total_loss/len(train_loader) :.2f}, Val Loss: {val_loss :.2f}"
+            f"Train Loss: {total_loss/len(train_loader) :.3f}, Val Loss: {val_loss :.3f}"
         )
     if val_loss < best_loss:
         best_loss = val_loss
