@@ -110,7 +110,7 @@ def create_vocab(pairs):
     src_vocab = {word: count for word, count in src_vocab.items() if count > 2}
     trg_vocab = {word: count for word, count in trg_vocab.items() if count > 2}
     src_vocab = ["<PAD>", "<UNK>"] + list(sorted(src_vocab.keys()))
-    trg_vocab = ["<PAD>", "<UNK>"] + list(sorted(trg_vocab.keys()))
+    trg_vocab = ["<PAD>"] + list(sorted(trg_vocab.keys()))
 
     print(f"src vocab size: {len(src_vocab)}")
     print(f"trg vocab size: {len(trg_vocab)}")
@@ -121,9 +121,9 @@ def create_vocab(pairs):
 
 
 # 将句子转换为向量
-def sentence_to_vector(sentence, vocab, max_length, lang):
+def tokens_to_vector(tokens, vocab, max_length, lang):
     vector = []
-    for word in tokenize_sentence(sentence, lang)[:max_length]:
+    for word in tokens[:max_length]:
         if word in vocab:
             vector.append(vocab[word])
         else:
@@ -152,17 +152,32 @@ class TranslationDataset(Dataset):
         if os.path.exists(f"tokenize_pairs_{DATASET}.pt"):
             self.tokenize_pairs = torch.load(f"tokenize_pairs_{DATASET}.pt")
         else:
-            self.tokenize_pairs = [
-                (
-                    sentence_to_vector(src_sentence, src_vocab, max_length, SRC_LANG),
-                    sentence_to_vector(trg_sentence, trg_vocab, max_length, TRG_LANG),
+            self.tokenize_pairs = []
+            for src_sentence, trg_sentence in tqdm(pairs):
+                src_tokens = tokenize_sentence(src_sentence, SRC_LANG)
+                trg_tokens = tokenize_sentence(trg_sentence, TRG_LANG)
+
+                # remove pairs with unknown words in trg
+                trg_has_unk = False
+                for trg_token in trg_tokens:
+                    if trg_token not in trg_vocab:
+                        trg_has_unk = True
+                        break
+                if trg_has_unk:
+                    continue
+
+                src_vector = tokens_to_vector(
+                    src_tokens, src_vocab, max_length, SRC_LANG
                 )
-                for src_sentence, trg_sentence in tqdm(pairs)
-            ]
+                trg_vector = tokens_to_vector(
+                    trg_tokens, trg_vocab, max_length, TRG_LANG
+                )
+                self.tokenize_pairs.append((src_vector, trg_vector))
+
             torch.save(self.tokenize_pairs, f"tokenize_pairs_{DATASET}.pt")
 
     def __len__(self):
-        return len(self.pairs)
+        return len(self.tokenize_pairs)
 
     def __getitem__(self, index):
         src_vector, trg_vector = self.tokenize_pairs[index]
