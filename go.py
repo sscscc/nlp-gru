@@ -103,11 +103,18 @@ def create_vocab(pairs):
         for _, count in trg_vocab.items():
             f.write(f"{count}\n")
 
+    print(f"raw src vocab size: {len(src_vocab)}")
+    print(f"raw trg vocab size: {len(trg_vocab)}")
+
     # remove words that appear <= 2 times
     src_vocab = {word: count for word, count in src_vocab.items() if count > 2}
     trg_vocab = {word: count for word, count in trg_vocab.items() if count > 2}
     src_vocab = ["<PAD>", "<UNK>"] + list(sorted(src_vocab.keys()))
     trg_vocab = ["<PAD>", "<UNK>"] + list(sorted(trg_vocab.keys()))
+
+    print(f"src vocab size: {len(src_vocab)}")
+    print(f"trg vocab size: {len(trg_vocab)}")
+
     src_word_to_index = {word: index for index, word in enumerate(src_vocab)}
     trg_word_to_index = {word: index for index, word in enumerate(trg_vocab)}
     return src_vocab, trg_vocab, src_word_to_index, trg_word_to_index
