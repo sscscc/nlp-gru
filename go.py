@@ -21,7 +21,7 @@ params = {
     "batch_size": 128,
     "learning_rate": 0.001,
     "epochs": 10,
-    "max_length": 128,
+    "max_length": 24,
 }
 params.update(nni.get_next_parameter())
 
@@ -209,12 +209,12 @@ MAX_LENGTH = params["max_length"]
 SRC_LANG = "en"
 TRG_LANG = "cn"
 
-DATASET = "wmt"
+DATASET = "manythings"
 
 # 加载数据并进行预处理
 print("loading data")
 if DATASET == "manythings":
-    pairs = load_data_manythings("data/manythings.txt")
+    pairs = load_data_manythings("cmn.txt")
 elif DATASET == "wmt":
     pairs = load_data_wmt()
 print("creating vocab")
