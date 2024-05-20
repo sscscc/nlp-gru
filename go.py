@@ -16,7 +16,7 @@ import os
 print("modules imported")
 
 params = {
-    "hidden_size": 1024,
+    "hidden_size": 768,
     "embd_size": 768,
     "num_layers": 1,
     "batch_size": 128,
@@ -108,9 +108,9 @@ def create_vocab(pairs):
     print(f"raw trg vocab size: {len(trg_vocab)}")
 
     # remove words that appear <= 2 times
-    src_vocab = {word: count for word, count in src_vocab.items() if count > 2}
-    trg_vocab = {word: count for word, count in trg_vocab.items() if count > 2}
-    src_vocab = ["<SOS>", "<EOS>", "<PAD>", "<UNK>"] + list(sorted(src_vocab.keys()))
+    src_vocab = {word: count for word, count in src_vocab.items() if count > 3}
+    trg_vocab = {word: count for word, count in trg_vocab.items() if count > 3}
+    src_vocab = ["<SOS>", "<EOS>", "<PAD>"] + list(sorted(src_vocab.keys()))
     trg_vocab = ["<SOS>", "<EOS>", "<PAD>"] + list(sorted(trg_vocab.keys()))
 
     print(f"src vocab size: {len(src_vocab)}")
@@ -169,12 +169,16 @@ class TranslationDataset(Dataset):
                 trg_tokens = tokenize_sentence(trg_sentence, TRG_LANG)
 
                 # remove pairs with unknown words in trg
-                trg_has_unk = False
+                has_unk = False
                 for trg_token in trg_tokens:
                     if trg_token not in trg_vocab:
-                        trg_has_unk = True
+                        has_unk = True
                         break
-                if trg_has_unk:
+                for src_token in src_tokens:
+                    if src_token not in src_vocab:
+                        has_unk = True
+                        break
+                if has_unk:
                     continue
 
                 src_vector = tokens_to_vector(
@@ -309,8 +313,8 @@ LEARNING_RATE = params["learning_rate"]
 EPOCHS = params["epochs"]
 MAX_LENGTH = params["max_length"]
 
-SRC_LANG = "en"
-TRG_LANG = "cn"
+SRC_LANG = "cn"
+TRG_LANG = "en"
 
 DATASET = "manythings"
 
