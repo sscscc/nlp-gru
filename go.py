@@ -10,17 +10,18 @@ from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 from opencc import OpenCC
 from datasets import load_dataset
-from torch.cuda.amp import autocast
+import random
 import os
 
 print("modules imported")
 
 params = {
-    "hidden_size": 512,
+    "hidden_size": 1024,
+    "embd_size": 768,
     "num_layers": 1,
     "batch_size": 128,
     "learning_rate": 0.001,
-    "epochs": 10,
+    "epochs": 20,
     "max_length": 24,
 }
 params.update(nni.get_next_parameter())
@@ -109,8 +110,8 @@ def create_vocab(pairs):
     # remove words that appear <= 2 times
     src_vocab = {word: count for word, count in src_vocab.items() if count > 2}
     trg_vocab = {word: count for word, count in trg_vocab.items() if count > 2}
-    src_vocab = ["<PAD>", "<UNK>"] + list(sorted(src_vocab.keys()))
-    trg_vocab = ["<PAD>"] + list(sorted(trg_vocab.keys()))
+    src_vocab = ["<SOS>", "<EOS>", "<PAD>", "<UNK>"] + list(sorted(src_vocab.keys()))
+    trg_vocab = ["<SOS>", "<EOS>", "<PAD>"] + list(sorted(trg_vocab.keys()))
 
     print(f"src vocab size: {len(src_vocab)}")
     print(f"trg vocab size: {len(trg_vocab)}")
@@ -123,20 +124,30 @@ def create_vocab(pairs):
 # 将句子转换为向量
 def tokens_to_vector(tokens, vocab, max_length, lang):
     vector = []
-    for word in tokens[:max_length]:
+    vector.append(vocab["<SOS>"])
+    for word in tokens[: max_length - 2]:
         if word in vocab:
             vector.append(vocab[word])
         else:
             vector.append(vocab["<UNK>"])
+    vector.append(vocab["<EOS>"])
     vector += [vocab["<PAD>"]] * (max_length - len(vector))
     return vector
 
 
 def vector_to_sentence(vector, vocab, lang):
     if lang == "cn":
-        sentence = "".join([vocab[id] for id in vector]).split("<PAD>")[0]
+        sentence = (
+            "".join([vocab[id] for id in vector[1:]])
+            .split("<PAD>")[0]
+            .split("<EOS>")[0]
+        )
     elif lang == "en":
-        sentence = " ".join([vocab[id] for id in vector]).split("<PAD>")[0]
+        sentence = (
+            " ".join([vocab[id] for id in vector[1:]])
+            .split("<PAD>")[0]
+            .split("<EOS>")[0]
+        )
     else:
         sentence = None
     return sentence
@@ -185,18 +196,87 @@ class TranslationDataset(Dataset):
 
 
 # 定义模型
-class GRUTranslator(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_layers=1):
-        super(GRUTranslator, self).__init__()
-        self.embedding = nn.Embedding(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, num_layers)
-        self.out = nn.Linear(hidden_size, output_size)
+class Encoder(nn.Module):
+    def __init__(self, src_vocab_size, embed_size, hidden_size, dropout=0.5):
+        super(Encoder, self).__init__()
+        self.embedding = nn.Embedding(src_vocab_size, embed_size, padding_idx=2)
+        self.gnu = nn.GRU(embed_size, hidden_size, batch_first=True)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, input_seq, hidden=None):
-        embedded = self.embedding(input_seq)
-        outputs, hidden = self.gru(embedded, hidden)
-        predictions = self.out(outputs)
-        return predictions, hidden
+    def forward(self, src):
+        # src [batch seq_len]
+        x_embeding = self.dropout(self.embedding(src))  # [batch, seq_len, embed_size]
+        _, h_n = self.gnu(x_embeding)
+        return h_n
+
+
+class Decoder(nn.Module):
+    def __init__(self, trg_vocab_size, embed_size, hidden_size, dropout=0.5):
+        super(Decoder, self).__init__()
+        self.embedding = nn.Embedding(trg_vocab_size, embed_size, padding_idx=2)
+
+        self.gnu = nn.GRU(embed_size + hidden_size, hidden_size, batch_first=True)
+        self.classify = nn.Linear(embed_size + hidden_size * 2, trg_vocab_size)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, trg_i, context, h_n):
+        # trg_i为某一时间步词的输入，[bacth_size]
+        # context为原始上下文向量，[bacth_size,1,hidden_size]
+        # h_n为上一时间布的隐状态[1，batch_size，hidden_size]
+        trg_i = trg_i.unsqueeze(1)
+        # trg_i[bacth_size,1]
+        trg_i_embed = self.dropout(self.embedding(trg_i))
+        # trg_i_embed [bacth_size,1,embed_size]
+
+        # 输入rnn模块的不仅仅只有词嵌入和上一时间步的隐状态，还有原始上下向量
+        input = torch.cat((trg_i_embed, context), dim=2)
+        # input[bacth_size,1,embed_size+hidden_size]
+        output, h_n = self.gnu(input, h_n)
+        # output[batch_size,1,hidden_size]
+        # h_n[1,batch_size,hidden_size]
+
+        # 原本rnn模型的输入直接带入线性分类层映射到英语空间中，这里新添原始词嵌入和原始上下文向量，即上面的input
+        input = input.squeeze()
+        output = output.squeeze()
+        # input[bacth_size embed_size+hidden_size]
+        # output[batch_szie hidden_size]
+        input = torch.cat((input, output), dim=1)
+        output = self.classify(input)
+        # output[bacth trg_vocab_size]
+        return output, h_n
+
+
+class GRUTranslator(nn.Module):
+    def __init__(self, src_vocab_size, embed_size, hidden_size, trg_vocab_size):
+        super(GRUTranslator, self).__init__()
+        self.encoder = Encoder(src_vocab_size, embed_size, hidden_size)
+        self.decoder = Decoder(trg_vocab_size, embed_size, hidden_size)
+        self.trg_vocab_size = trg_vocab_size
+
+    def forward(self, src, trg, teach_threshold=0.5):
+        # src[batch seq_len]
+        # trg[bacth seq_len]
+
+        trg_seq_len = src.shape[1]
+
+        batch_size = src.shape[0]
+
+        outputs_save = torch.zeros(batch_size, trg_seq_len, self.trg_vocab_size).cuda()
+
+        h_n = self.encoder(src)  # [1,batch_size,hidden_size]
+        context = h_n.permute(1, 0, 2)  # [batch_size,1,hidden_size]
+        input = trg[:, 0]
+
+        for t in range(1, trg_seq_len):
+            output, h_n = self.decoder(input, context, h_n)
+            outputs_save[:, t, :] = output
+            probability = random.random()
+            # 是否采用强制教学
+            if probability < teach_threshold:
+                input = trg[:, t]
+            else:
+                input = output.argmax(1)
+        return outputs_save
 
 
 def test_model():
@@ -206,9 +286,9 @@ def test_model():
     src_batch, trg_batch = next(iter(test_loader))
     src_batch, trg_batch = src_batch.to(device), trg_batch.to(device)
     with torch.no_grad():
-        output, _ = model(src_batch)
+        output = model(src_batch, trg_batch, 0)
         output = output.argmax(dim=-1)
-    for i in range(100):
+    for i in range(15):
         src_sentence = vector_to_sentence(src_batch[i], src_id2word, SRC_LANG)
         trg_sentence = vector_to_sentence(trg_batch[i], trg_id2word, TRG_LANG)
         pred_sentence = vector_to_sentence(output[i], trg_id2word, TRG_LANG)
@@ -222,6 +302,7 @@ torch.manual_seed(0)
 
 # 设置超参数
 HIDDEN_SIZE = int(params["hidden_size"])
+EMBD_SIZE = int(params["embd_size"])
 NUM_LAYERS = int(params["num_layers"])
 BATCH_SIZE = params["batch_size"]
 LEARNING_RATE = params["learning_rate"]
@@ -258,7 +339,7 @@ train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # 初始化模型、损失函数和优化器
-model = GRUTranslator(input_size, HIDDEN_SIZE, output_size, NUM_LAYERS)
+model = GRUTranslator(input_size, EMBD_SIZE, HIDDEN_SIZE, output_size)
 loss_function = nn.CrossEntropyLoss()
 optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 
@@ -280,7 +361,7 @@ for epoch in epoch_bar:
         src_batch, trg_batch = src_batch.to(device), trg_batch.to(device)
         optimizer.zero_grad()
 
-        output, _ = model(src_batch)
+        output = model(src_batch, trg_batch)
         loss = loss_function(output.view(-1, output_size), trg_batch.view(-1))
         # loss = loss_function(output, trg_batch)
         loss.backward()
@@ -295,7 +376,7 @@ for epoch in epoch_bar:
     with torch.no_grad():
         for src_batch, trg_batch in val_bar:
             src_batch, trg_batch = src_batch.to(device), trg_batch.to(device)
-            output, _ = model(src_batch)
+            output = model(src_batch, trg_batch, 0)
             loss = loss_function(output.view(-1, output_size), trg_batch.view(-1))
             val_loss += loss.item()
             val_bar.set_postfix(loss=loss.item())
@@ -310,6 +391,8 @@ for epoch in epoch_bar:
 
     if val_loss > last_loss:
         worse_count += 1
+    else:
+        worse_count = 0
 
     last_loss = val_loss
 

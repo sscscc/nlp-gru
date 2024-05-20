@@ -3,7 +3,8 @@ import signal
 
 search_space = {
     "hidden_size": {"_type": "quniform", "_value": [128, 1024, 128]},
-    "num_layers": {"_type": "quniform", "_value": [1, 10, 1]},
+    "embd_size": {"_type": "quniform", "_value": [128, 1024, 128]},
+    # "num_layers": {"_type": "quniform", "_value": [1, 10, 1]},
     "batch_size": {"_type": "choice", "_value": [32, 64, 128]},
     "learning_rate": {"_type": "loguniform", "_value": [0.0001, 1]},
     "epochs": {"_type": "choice", "_value": [200]},
