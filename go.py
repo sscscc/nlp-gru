@@ -334,6 +334,7 @@ print("output size: ", output_size)
 # 创建数据集和数据加载器
 print("creating dataset and dataloader")
 full_dataset = TranslationDataset(pairs, src_word2id, trg_word2id, MAX_LENGTH)
+print("dataset size: ", len(full_dataset))
 train_data_len = int(0.8 * len(full_dataset))
 val_data_len = len(full_dataset) - train_data_len
 train_dataset, val_dataset = torch.utils.data.random_split(
