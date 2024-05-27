@@ -8,8 +8,6 @@ import nni
 import jieba
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
-from opencc import OpenCC
-from datasets import load_dataset
 import random
 import os
 
@@ -27,42 +25,13 @@ params = {
 params.update(nni.get_next_parameter())
 
 
-def load_data_manythings(path):
+def load_data(path):
     with open(path, "r", encoding="utf-8") as f:
         lines = f.read().strip().split("\n")
-    pairs = [line.split("\t")[:2] for line in lines]
-    cc = OpenCC("t2s")
+    pairs = [line.split("\t") for line in lines]
     for pair in pairs:
-        pair[1] = cc.convert(pair[1])
         if SRC_LANG == "cn":
             pair[0], pair[1] = pair[1], pair[0]
-    return pairs
-
-
-def load_data_wmt():
-    dataset = load_dataset("wmt/wmt19", "zh-en")
-    if os.path.exists(f"pairs_{DATASET}.pt"):
-        pairs = torch.load(f"pairs_{DATASET}.pt")
-    else:
-        pairs = []
-        bar = tqdm(dataset["train"])
-        for example in bar:
-            en, zh = example["translation"]["en"], example["translation"]["zh"]
-            if (
-                len(tokenize_sentence(en, "en")) < 128
-                and len(tokenize_sentence(zh, "cn")) < 128
-            ):
-                pairs.append(
-                    (
-                        example["translation"]["en"],
-                        example["translation"]["zh"],
-                    )
-                )
-                pair_num = len(pairs)
-                bar.set_description(f"pairs: {pair_num}")
-                if pair_num >= 1000000:
-                    break
-        torch.save(pairs, f"pairs_{DATASET}.pt")
     return pairs
 
 
@@ -79,8 +48,8 @@ def tokenize_sentence(text, lang):
 def create_vocab(pairs):
     src_vocab = {}
     trg_vocab = {}
-    if os.path.exists(f"vocab_raw_{DATASET}.pt"):
-        src_vocab, trg_vocab = torch.load(f"vocab_raw_{DATASET}.pt")
+    if os.path.exists(f"vocab_raw.pt"):
+        src_vocab, trg_vocab = torch.load(f"vocab_raw.pt")
     else:
         for pair in tqdm(pairs):
             src, trg = pair
@@ -94,7 +63,7 @@ def create_vocab(pairs):
                     trg_vocab[token] = 1
                 else:
                     trg_vocab[token] += 1
-        torch.save((src_vocab, trg_vocab), f"vocab_raw_{DATASET}.pt")
+        torch.save((src_vocab, trg_vocab), f"vocab_raw.pt")
 
     # write vocab count to csv
     with open("src_vocab.csv", "w", encoding="utf-8") as f:
@@ -160,8 +129,8 @@ class TranslationDataset(Dataset):
         self.src_vocab = src_vocab
         self.trg_vocab = trg_vocab
         self.max_length = max_length
-        if os.path.exists(f"tokenize_pairs_{DATASET}.pt"):
-            self.tokenize_pairs = torch.load(f"tokenize_pairs_{DATASET}.pt")
+        if os.path.exists(f"tokenize_pairs.pt"):
+            self.tokenize_pairs = torch.load(f"tokenize_pairs.pt")
         else:
             self.tokenize_pairs = []
             for src_sentence, trg_sentence in tqdm(pairs):
@@ -189,7 +158,7 @@ class TranslationDataset(Dataset):
                 )
                 self.tokenize_pairs.append((src_vector, trg_vector))
 
-            torch.save(self.tokenize_pairs, f"tokenize_pairs_{DATASET}.pt")
+            torch.save(self.tokenize_pairs, f"tokenize_pairs.pt")
 
     def __len__(self):
         return len(self.tokenize_pairs)
@@ -316,14 +285,9 @@ MAX_LENGTH = params["max_length"]
 SRC_LANG = "cn"
 TRG_LANG = "en"
 
-DATASET = "manythings"
-
 # 加载数据并进行预处理
 print("loading data")
-if DATASET == "manythings":
-    pairs = load_data_manythings("cmn.txt")
-elif DATASET == "wmt":
-    pairs = load_data_wmt()
+pairs = load_data("cmn_zhsim.txt")
 print("creating vocab")
 src_id2word, trg_id2word, src_word2id, trg_word2id = create_vocab(pairs)
 input_size = len(src_id2word)
