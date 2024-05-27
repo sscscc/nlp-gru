@@ -10,6 +10,7 @@ from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 import random
 import os
+from torchtext.data.metrics import bleu_score
 
 print("modules imported")
 
@@ -349,9 +350,25 @@ for epoch in epoch_bar:
             loss = loss_function(output.view(-1, output_size), trg_batch.view(-1))
             val_loss += loss.item()
             val_bar.set_postfix(loss=loss.item())
+
+            # bleu score:
+            batch_size = src_batch.shape[0]
+            output = output.argmax(dim=-1)
+            bleu_sum = 0
+            for i in range(batch_size):
+                trg_sentence = vector_to_sentence(
+                    trg_batch[i], trg_id2word, TRG_LANG
+                ).split()
+                pred_sentence = vector_to_sentence(
+                    output[i], trg_id2word, TRG_LANG
+                ).split()
+                bleu = bleu_score([pred_sentence], [[trg_sentence]])
+                bleu_sum += bleu
+            bleu = bleu_sum / batch_size
+
         val_loss /= len(val_loader)
         epoch_bar.set_description(
-            f"Train Loss: {total_loss/len(train_loader) :.3f}, Val Loss: {val_loss :.3f}"
+            f"Train Loss: {total_loss/len(train_loader) :.3f}, Val Loss: {val_loss :.3f}, Bleu: {bleu:.3f}"
         )
     if val_loss < best_loss:
         best_loss = val_loss
