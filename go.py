@@ -194,29 +194,16 @@ class Decoder(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, trg_i, context, h_n):
-        # trg_i为某一时间步词的输入，[bacth_size]
-        # context为原始上下文向量，[bacth_size,1,hidden_size]
-        # h_n为上一时间布的隐状态[1，batch_size，hidden_size]
         trg_i = trg_i.unsqueeze(1)
-        # trg_i[bacth_size,1]
         trg_i_embed = self.dropout(self.embedding(trg_i))
-        # trg_i_embed [bacth_size,1,embed_size]
 
-        # 输入rnn模块的不仅仅只有词嵌入和上一时间步的隐状态，还有原始上下向量
         input = torch.cat((trg_i_embed, context), dim=2)
-        # input[bacth_size,1,embed_size+hidden_size]
         output, h_n = self.gnu(input, h_n)
-        # output[batch_size,1,hidden_size]
-        # h_n[1,batch_size,hidden_size]
 
-        # 原本rnn模型的输入直接带入线性分类层映射到英语空间中，这里新添原始词嵌入和原始上下文向量，即上面的input
         input = input.squeeze()
         output = output.squeeze()
-        # input[bacth_size embed_size+hidden_size]
-        # output[batch_szie hidden_size]
         input = torch.cat((input, output), dim=1)
         output = self.classify(input)
-        # output[bacth trg_vocab_size]
         return output, h_n
 
 
@@ -228,9 +215,6 @@ class GRUTranslator(nn.Module):
         self.trg_vocab_size = trg_vocab_size
 
     def forward(self, src, trg, teach_threshold=0.5):
-        # src[batch seq_len]
-        # trg[bacth seq_len]
-
         trg_seq_len = src.shape[1]
 
         batch_size = src.shape[0]
