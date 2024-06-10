@@ -19,7 +19,7 @@ experiment.config.search_space = search_space
 experiment.config.max_trial_number = 500
 experiment.config.trial_concurrency = 1
 experiment.config.tuner.name = "Anneal"  # Anneal, Evolution, TPE
-experiment.config.tuner.class_args["optimize_mode"] = "minimize"
+experiment.config.tuner.class_args["optimize_mode"] = "maximize"
 # experiment.config.tuner.class_args["population_size"] = 16
 
 # Run it!
