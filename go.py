@@ -356,6 +356,7 @@ for epoch in epoch_bar:
         )
     if val_loss < best_loss:
         best_loss = val_loss
+        best_bleu = bleu
         best_model_state = model.state_dict().copy()
         # torch.save(best_model_state, "best_model.pt")
 
@@ -373,4 +374,5 @@ for epoch in epoch_bar:
 model.load_state_dict(best_model_state)
 test_model()
 print("best val loss: ", best_loss)
+print("best bleu: ", best_bleu)
 nni.report_final_result(best_loss)
