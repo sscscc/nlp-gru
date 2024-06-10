@@ -328,6 +328,8 @@ for epoch in epoch_bar:
     val_loss = 0
     val_bar = tqdm(val_loader, leave=False)
     with torch.no_grad():
+        bleu_sum = 0
+        bleu_cnt = 0
         for src_batch, trg_batch in val_bar:
             src_batch, trg_batch = src_batch.to(device), trg_batch.to(device)
             output = model(src_batch, trg_batch, 0)
@@ -338,7 +340,7 @@ for epoch in epoch_bar:
             # bleu score:
             batch_size = src_batch.shape[0]
             output = output.argmax(dim=-1)
-            bleu_sum = 0
+
             for i in range(batch_size):
                 trg_sentence = vector_to_sentence(
                     trg_batch[i], trg_id2word, TRG_LANG
@@ -348,7 +350,8 @@ for epoch in epoch_bar:
                 ).split()
                 bleu = bleu_score([pred_sentence], [[trg_sentence]])
                 bleu_sum += bleu
-            bleu = bleu_sum / batch_size
+                bleu_cnt += 1
+        bleu = bleu_sum / bleu_cnt
 
         val_loss /= len(val_loader)
         epoch_bar.set_description(
@@ -375,4 +378,5 @@ model.load_state_dict(best_model_state)
 test_model()
 print("best val loss: ", best_loss)
 print("best bleu: ", best_bleu)
+nni.report_intermediate_result({"bleu": best_bleu, "loss": best_loss})
 nni.report_final_result(best_loss)
